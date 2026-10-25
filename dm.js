@@ -792,28 +792,38 @@
     const nd = window.nerdamer;
     let expr = '';
     
-    // scan for the first line that looks like an algebraic expression
-    const lines = text.split('\n');
+    // Clean out UI noise
+    let cleanText = text.replace(/Skip to main content/gi, '')
+                        .replace(/Back to Home/gi, '')
+                        .replace(/Sec\..*?\n/gi, '')
+                        .replace(/Due:.*?\n/gi, '')
+                        .replace(/Grade:.*?\n/gi, '')
+                        .replace(/Score:.*?\n/gi, '')
+                        .replace(/Penalty:.*?\n/gi, '')
+                        .replace(/Question/gi, '')
+                        .replace(/Factor.*?\n/gi, '')
+                        .replace(/Answer.*?$/gis, '')
+                        .replace(/Attempt.*?$/gis, '');
+
+    // Find the first line that looks like an expression
+    const lines = cleanText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     for (const l of lines) {
-      if (/[a-z]/i.test(l) && /[0-9+\-]/i.test(l) && !/factor|solve|question|answer|score|penalty|complete|assignment|section|chapter|level|out of/i.test(l)) {
-         let cleaned = cleanLine(l).replace(/^.*?:\s*/, '').trim();
-         if (cleaned.length > 2 && cleaned.length < 50) {
-            expr = cleaned;
-            break;
-         }
+      if (/[0-9]/.test(l) && /[a-z]/i.test(l)) {
+        expr = l;
+        break;
       }
     }
 
     if (!expr) return null;
     
-    // strip any accidental equals sign (e.g. 12x+30=0 -> 12x+30)
+    // Strip any accidental equals sign
     if (expr.includes('=')) expr = expr.split('=')[0].trim();
 
     let out;
     try { out = nd(`factor(${expr})`).toString(); } catch (err) { return null; }
     if (!out) return null;
 
-    // clean formatting for the UI
+    // Clean formatting for the UI
     const cleanOut = out
       .replace(/\*/g, '')
       .replace(/-/g, ' − ')
@@ -1760,6 +1770,7 @@ Format:
 "  <factored>"
 ""
 "Answer:   <factored>"
+For factoring problems, the "variables" array should be ["Answer"] and the "solution" object should be {"Answer": "<factored>"}.
 
 === GENERIC FALLBACK ===
 
