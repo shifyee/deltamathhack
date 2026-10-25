@@ -790,27 +790,30 @@
 
   function nFactor(text) {
     const nd = window.nerdamer;
-    const lines = text.split('\n');
     let expr = '';
-
-    // scan from bottom up, find the first line that looks like an expression
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const l = lines[i];
-      if (/[a-z]/i.test(l) && !/factor|solve|question|answer|score|penalty|complete|assignment/i.test(l) && l.length < 100) {
-        const cleaned = cleanLine(l).replace(/^.*?:\s*/, '').replace(/=0$/, '').trim();
-        if (/[a-z]/.test(cleaned)) {
-          expr = cleaned;
-          break;
-        }
+    
+    // scan for the first line that looks like an algebraic expression
+    const lines = text.split('\n');
+    for (const l of lines) {
+      if (/[a-z]/i.test(l) && /[0-9+\-]/i.test(l) && !/factor|solve|question|answer|score|penalty|complete|assignment|section|chapter|level|out of/i.test(l)) {
+         let cleaned = cleanLine(l).replace(/^.*?:\s*/, '').trim();
+         if (cleaned.length > 2 && cleaned.length < 50) {
+            expr = cleaned;
+            break;
+         }
       }
     }
 
     if (!expr) return null;
+    
+    // strip any accidental equals sign (e.g. 12x+30=0 -> 12x+30)
+    if (expr.includes('=')) expr = expr.split('=')[0].trim();
 
     let out;
     try { out = nd(`factor(${expr})`).toString(); } catch (err) { return null; }
+    if (!out) return null;
 
-    // clean formatting
+    // clean formatting for the UI
     const cleanOut = out
       .replace(/\*/g, '')
       .replace(/-/g, ' − ')
@@ -1746,6 +1749,17 @@ Format:
 "  <simplified>"
 ""
 "Answer:   <simplified>"
+
+=== FACTORING ===
+
+Format:
+"Expression:"
+"  <expr>"
+""
+"Factor out GCF:"
+"  <factored>"
+""
+"Answer:   <factored>"
 
 === GENERIC FALLBACK ===
 
