@@ -256,7 +256,8 @@
     lines = lines.filter(l => {
       if (!l) return false;
       if (/^\s*=/.test(l)) return false;
-      if (/, (equals|plus|minus|negative|x|y|z|a|b|c|w|is|the|of|over|times|divided)\b/i.test(l) && (l.match(/,/g) || []).length >= 3) return false;
+      // FIX 1: >= 2 commas (was >= 3) to catch "4, x, plus, 4"
+      if (/, (equals|plus|minus|negative|x|y|z|a|b|c|w|is|the|of|over|times|divided)\b/i.test(l) && (l.match(/,/g) || []).length >= 2) return false;
       if (/^(minus|plus|negative|equals|open|close)\b/i.test(l)) return false;
       return true;
     });
@@ -788,6 +789,7 @@
     return { answers: [{ v: 'simplified', val: out }], work: ['Expression:', `  ${expr}`, '', 'Distribute and combine like terms:', `  ${out}`, '', `Answer:   ${out}`] };
   }
 
+  // FIX 2: linear GCF support
   function nFactor(text) {
     const nd = window.nerdamer;
     let expr = '';
@@ -796,6 +798,8 @@
     const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     for (const l of lines) {
       if (/[0-9]/.test(l) && /[a-z]/i.test(l) && !/factor|solve|question|answer|score|penalty|complete|assignment|section|chapter|level|out of/i.test(l)) {
+         // Skip screen-reader text like "4, x, plus, 4"
+         if (/, (plus|minus|equals|negative|x|y|z|a|b|c|w|is|the|of|over|times|divided)\b/i.test(l) && (l.match(/,/g) || []).length >= 2) continue;
          let cleaned = cleanLine(l).replace(/^.*?:\s*/, '').trim();
          if (cleaned.length > 2 && cleaned.length < 50) { expr = cleaned; break; }
       }
@@ -824,6 +828,9 @@
     if (a !== 0) {
       const vals = [a, b, c].filter(v => v !== 0).map(v => Math.abs(v));
       gcf = vals.reduce((acc, val) => gcd(acc, val), vals[0]);
+    } else if (b !== 0 || c !== 0) {
+      const vals = [b, c].filter(v => v !== 0).map(v => Math.abs(v));
+      gcf = vals.reduce((acc, val) => gcd(acc, val), vals[0]);
     }
 
     const a2 = a / gcf, b2 = b / gcf, c2 = c / gcf;
@@ -844,58 +851,88 @@
       work.push('');
     }
 
-    if (a2 === 1) {
-      work.push(`Find two numbers that multiply to ${c2} and add to ${b2}:`);
-      let m = 0, n = 0;
-      for (let i = -200; i <= 200; i++) {
-        if (i === 0) continue;
-        if (c2 % i === 0 && i + (c2 / i) === b2) { m = i; n = c2 / i; break; }
+    if (a2 === 0) {
+      // Linear case (no x² term)
+      if (gcf > 1) {
+        let innerStr = '';
+        if (b2 !== 0) innerStr += `${b2 === 1 ? '' : b2 === -1 ? '-' : b2}x`;
+        if (c2 !== 0) {
+          const sign = c2 > 0 ? ' + ' : ' − ';
+          innerStr += `${sign}${Math.abs(c2)}`;
+        }
+        innerStr = innerStr.trim();
+        if (innerStr.startsWith('+ ')) innerStr = innerStr.slice(2);
+        finalAns = `${gcf}(${innerStr})`;
+      } else {
+        finalAns = compact.replace(/\^2/g, '²').replace(/-/g, ' − ').replace(/\+/g, ' + ');
       }
-      if (m !== 0) {
-        work.push(`  ${m} and ${n}`);
-        work.push('');
-        
-        // Manually build the string so Nerdamer doesn't mess up the order
-        let f1 = m > 0 ? `(x + ${m})` : `(x − ${-m})`;
-        let f2 = n > 0 ? `(x + ${n})` : `(x − ${-n})`;
-        if (m === 1) f1 = '(x + 1)'; if (m === -1) f1 = '(x − 1)';
-        if (n === 1) f2 = '(x + 1)'; if (n === -1) f2 = '(x − 1)';
-        
-        finalAns = `${gcf > 1 ? gcf : ''}${f1}${f2}`;
-
-        work.push(`Factor:`);
-        work.push(`  ${finalAns}`);
-        work.push('');
-      }
-    } else if (Math.abs(a2) > 1) {
-      const ac = a2 * c2;
-      work.push(`Find two numbers that multiply to ${a2} * ${c2} = ${ac} and add to ${b2}:`);
+    } else {
+      // Quadratic case
       let m = 0, n = 0;
+      let ac = a2 * c2;
+      work.push(`Find two numbers that multiply to ${a2 === 1 ? c2 : `${a2} * ${c2} = ${ac}`} and add to ${b2}:`);
       for (let i = -200; i <= 200; i++) {
         if (i === 0) continue;
         if (ac % i === 0 && i + (ac / i) === b2) { m = i; n = ac / i; break; }
       }
+      
       if (m !== 0) {
         work.push(`  ${m} and ${n}`);
         work.push('');
-        
-        let mid = '';
-        if (m !== 0) mid += `${m > 0 ? '+ ' : '− '}${Math.abs(m) === 1 ? '' : Math.abs(m)}x `;
-        if (n !== 0) mid += `${n > 0 ? '+ ' : '− '}${Math.abs(n) === 1 ? '' : Math.abs(n)}x`;
-        
-        let start = `${a2 === 1 ? '' : a2 === -1 ? '-' : a2}x² `;
-        let end = `${c2 > 0 ? '+ ' : '− '}${Math.abs(c2)}`;
-        
+
+        const fmtBin = (ca, cb) => {
+          let out = '';
+          if (ca !== 0) out += (ca === 1 ? '' : ca === -1 ? '−' : ca) + 'x';
+          if (cb !== 0) {
+            if (out) out += cb > 0 ? ' + ' + cb : ' − ' + Math.abs(cb);
+            else out += cb > 0 ? cb : '−' + Math.abs(cb);
+          }
+          return out || '0';
+        };
+
+        let split = `${a2 === 1 ? '' : a2 === -1 ? '−' : a2}x²`;
+        split += ` ${m > 0 ? '+' : '−'} ${Math.abs(m) === 1 ? '' : Math.abs(m)}x`;
+        split += ` ${n > 0 ? '+' : '−'} ${Math.abs(n) === 1 ? '' : Math.abs(n)}x`;
+        split += ` ${c2 > 0 ? '+' : '−'} ${Math.abs(c2)}`;
+
         work.push(`Split the middle term:`);
-        work.push(`  ${gcf > 1 ? gcf : ''}(${start}${mid.trim().replace(/^\+\s/, '')} ${end})`);
+        work.push(`  ${gcf > 1 ? gcf + '(' : ''}${split}${gcf > 1 ? ')' : ''}`);
         work.push('');
 
-        // Let Nerdamer handle A>1 grouping
-        let factoredStr = '';
-        try { factoredStr = nd(`factor(${expr})`).toString(); } catch(e) {}
-        finalAns = factoredStr.replace(/\*/g, '').replace(/-/g, ' − ').replace(/\+/g, ' + ').replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
+        const g1 = gcd(a2, m);
+        const g2_raw = gcd(n, c2);
+        
+        let bin1_a = a2 / g1, bin1_b = m / g1;
+        let bin2_a = n / g2_raw, bin2_b = c2 / g2_raw;
+        
+        let g2 = g2_raw;
+        // Ensure the binomials match exactly (flip signs if needed)
+        if (bin1_a === -bin2_a && bin1_b === -bin2_b) {
+          g2 = -g2;
+          bin2_a = -bin2_a;
+          bin2_b = -bin2_b;
+        }
+        
+        const out1 = g1 === 1 ? 'x' : g1 === -1 ? '−x' : g1 + 'x';
+        const in1 = fmtBin(bin1_a, bin1_b);
+        const in2 = fmtBin(bin2_a, bin2_b);
+        
+        let grp = `${out1}(${in1}) ${g2 >= 0 ? '+' : '−'} ${Math.abs(g2) === 1 ? '' : Math.abs(g2)}(${in2})`;
+        if (Math.abs(g2) === 1) grp = `${out1}(${in1}) ${g2 > 0 ? '+' : '−'} (${in2})`;
         
         work.push(`Factor by grouping:`);
+        work.push(`  ${gcf > 1 ? gcf + '[' : ''}${grp}${gcf > 1 ? ']' : ''}`);
+        work.push('');
+
+        // Build the final factors
+        let f1 = bin1_a === 1 ? `(x ${bin1_b > 0 ? '+ ' + bin1_b : '− ' + (-bin1_b)})` : `(${bin1_a}x ${bin1_b > 0 ? '+ ' + bin1_b : '− ' + (-bin1_b)})`;
+        if (bin1_b === 1) f1 = bin1_a === 1 ? '(x + 1)' : `(${bin1_a}x + 1)`;
+        if (bin1_b === -1) f1 = bin1_a === 1 ? '(x − 1)' : `(${bin1_a}x − 1)`;
+        
+        const f2_bin = fmtBin(g1, g2);
+        finalAns = `${gcf > 1 ? gcf : ''}${f1}(${f2_bin})`;
+
+        work.push(`Factor:`);
         work.push(`  ${finalAns}`);
         work.push('');
       }
@@ -2105,7 +2142,6 @@ If you cannot reconstruct a solvable problem, return {"error":"reason"}.`;
 
   function detect(t) {
     if (/\bfactor\b/i.test(t)) return 'factor';
-    if (/\bsolve the (following )?system\b/i.test(t) || /\bby substitution\b/i.test(t) || /\bby elimination\b/i.test(t)) return 'system';
     if (/\bsolve the (following )?system\b/i.test(t) || /\bby substitution\b/i.test(t) || /\bby elimination\b/i.test(t)) return 'system';
     if (/\bname the property\b/i.test(t) || /\bproperties?\s+of\s+real\s+numbers?\b/i.test(t)) return 'property';
     if (/\bcompound\s+inequalit/i.test(t) || (/-?\d+\.?\d*\s*[<>]=?\s*[^<>\n]+?\s*[<>]=?\s*-?\d+\.?\d*/.test(t) && /solve/i.test(t))) return 'compoundIneq';
