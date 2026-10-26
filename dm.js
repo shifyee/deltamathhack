@@ -788,64 +788,117 @@
     return { answers: [{ v: 'simplified', val: out }], work: ['Expression:', `  ${expr}`, '', 'Distribute and combine like terms:', `  ${out}`, '', `Answer:   ${out}`] };
   }
 
-  function nFactor(text) {
+   function nFactor(text) {
     const nd = window.nerdamer;
     let expr = '';
     
-    // Clean out UI noise
-    let cleanText = text.replace(/Skip to main content/gi, '')
-                        .replace(/Back to Home/gi, '')
-                        .replace(/Sec\..*?\n/gi, '')
-                        .replace(/Due:.*?\n/gi, '')
-                        .replace(/Grade:.*?\n/gi, '')
-                        .replace(/Score:.*?\n/gi, '')
-                        .replace(/Penalty:.*?\n/gi, '')
-                        .replace(/Question/gi, '')
-                        .replace(/Factor.*?\n/gi, '')
-                        .replace(/Answer.*?$/gis, '')
-                        .replace(/Attempt.*?$/gis, '');
-
-    // Find the first line that looks like an expression
-    const lines = cleanText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    // Find the expression from the text
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     for (const l of lines) {
-      if (/[0-9]/.test(l) && /[a-z]/i.test(l)) {
-        expr = l;
-        break;
+      if (/[0-9]/.test(l) && /[a-z]/i.test(l) && !/factor|solve|question|answer|score|penalty|complete|assignment|section|chapter|level|out of/i.test(l)) {
+         let cleaned = cleanLine(l).replace(/^.*?:\s*/, '').trim();
+         if (cleaned.length > 2 && cleaned.length < 50) { expr = cleaned; break; }
+      }
+    }
+    if (!expr) return null;
+    if (expr.includes('=')) expr = expr.split('=')[0].trim();
+
+    // Clean the input for Nerdamer
+    const compact = expr.replace(/\s/g, '').replace(/\^2/g, '^2'); // keep ^2 for regex
+    
+    let a = 0, b = 0, c = 0;
+    
+    // Parse A, B, C
+    const am = compact.match(/([+-]?\d*)x\^2/i);
+    if (am) a = am[1] === '' || am[1] === '+' ? 1 : am[1] === '-' ? -1 : parseFloat(am[1]);
+    
+    // Only match the middle x (not x^2)
+    const bm = compact.match(/([+-]?\d*)x(?!\^)/i);
+    if (bm) b = bm[1] === '' || bm[1] === '+' ? 1 : bm[1] === '-' ? -1 : parseFloat(bm[1]);
+    
+    // Match the constant term at the end
+    const cm = compact.match(/([+-]?\d+)$/);
+    if (cm) c = parseFloat(cm[1]);
+
+    let gcf = 1;
+    if (a !== 0) {
+      const vals = [a, b, c].filter(v => v !== 0).map(v => Math.abs(v));
+      gcf = vals.reduce((acc, val) => gcd(acc, val), vals[0]);
+    }
+
+    const a2 = a / gcf, b2 = b / gcf, c2 = c / gcf;
+    
+    // Get final factored string from Nerdamer for the answer block
+    let factoredStr = '';
+    try { factoredStr = nd(`factor(${expr})`).toString(); } catch(e) {}
+    const cleanOut = factoredStr.replace(/\*/g, '').replace(/-/g, ' − ').replace(/\+/g, ' + ').replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
+
+    const work = ['Expression:', `  ${expr.replace(/-/g, ' − ').replace(/\+/g, ' + ')}`, ''];
+
+    // Step 1: GCF
+    if (gcf > 1) {
+      let innerStr = '';
+      if (a2 !== 0) innerStr += `${a2 === 1 ? '' : a2 === -1 ? '-' : a2}x² `;
+      if (b2 !== 0) innerStr += `${b2 > 0 ? '+ ' : '− '}${Math.abs(b2) === 1 ? '' : Math.abs(b2)}x `;
+      if (c2 !== 0) innerStr += `${c2 > 0 ? '+ ' : '− '}${Math.abs(c2)}`;
+      innerStr = innerStr.trim();
+      if (innerStr.startsWith('+ ')) innerStr = innerStr.slice(2);
+      
+      work.push(`Factor out GCF:`);
+      work.push(`  ${gcf}(${innerStr})`);
+      work.push('');
+    }
+
+    // Step 2: Find magic numbers
+    if (a2 === 1) {
+      work.push(`Find two numbers that multiply to ${c2} and add to ${b2}:`);
+      let m = 0, n = 0;
+      for (let i = -200; i <= 200; i++) {
+        if (i === 0) continue;
+        if (c2 % i === 0 && i + (c2 / i) === b2) { m = i; n = c2 / i; break; }
+      }
+      if (m !== 0) {
+        work.push(`  ${m} and ${n}`);
+        work.push('');
+        
+        let f1 = m === 1 ? '(x + 1)' : m === -1 ? '(x − 1)' : `(x ${m > 0 ? '+ ' + m : '− ' + (-m)})`;
+        let f2 = n === 1 ? '(x + 1)' : n === -1 ? '(x − 1)' : `(x ${n > 0 ? '+ ' + n : '− ' + (-n)})`;
+
+        work.push(`Factor:`);
+        work.push(`  ${gcf > 1 ? gcf : ''}${f1}${f2}`);
+        work.push('');
+      }
+    } else if (Math.abs(a2) > 1) {
+      const ac = a2 * c2;
+      work.push(`Find two numbers that multiply to ${a2} * ${c2} = ${ac} and add to ${b2}:`);
+      let m = 0, n = 0;
+      for (let i = -200; i <= 200; i++) {
+        if (i === 0) continue;
+        if (ac % i === 0 && i + (ac / i) === b2) { m = i; n = ac / i; break; }
+      }
+      if (m !== 0) {
+        work.push(`  ${m} and ${n}`);
+        work.push('');
+        
+        let mid = '';
+        if (m !== 0) mid += `${m > 0 ? '+ ' : '− '}${Math.abs(m) === 1 ? '' : Math.abs(m)}x `;
+        if (n !== 0) mid += `${n > 0 ? '+ ' : '− '}${Math.abs(n) === 1 ? '' : Math.abs(n)}x`;
+        
+        let start = `${a2 === 1 ? '' : a2 === -1 ? '-' : a2}x² `;
+        let end = `${c2 > 0 ? '+ ' : '− '}${Math.abs(c2)}`;
+        
+        work.push(`Split the middle term:`);
+        work.push(`  ${gcf > 1 ? gcf : ''}(${start}${mid.trim().replace(/^\+\s/, '')} ${end})`);
+        work.push('');
+        
+        work.push(`Factor by grouping:`);
+        // Just use the nerdamer cleanOut for grouping to avoid messy parsing
+        work.push(`  ${cleanOut}`);
+        work.push('');
       }
     }
 
-    if (!expr) return null;
-    
-    // Strip any accidental equals sign
-    if (expr.includes('=')) expr = expr.split('=')[0].trim();
-
-    let out;
-    try { out = nd(`factor(${expr})`).toString(); } catch (err) { return null; }
-    if (!out) return null;
-
-    // Clean formatting for the UI
-    const cleanOut = out
-      .replace(/\*/g, '')
-      .replace(/-/g, ' − ')
-      .replace(/\+/g, ' + ')
-      .replace(/\s+/g, ' ')
-      .replace(/\(\s+/g, '(')
-      .replace(/\s+\)/g, ')');
-
-    const cleanExpr = expr
-      .replace(/-/g, ' − ')
-      .replace(/\+/g, ' + ')
-      .replace(/\s+/g, ' ');
-
-    const work = [
-      'Expression:',
-      `  ${cleanExpr}`,
-      '',
-      'Factor out GCF:',
-      `  ${cleanOut}`,
-      '',
-      `Answer:   ${cleanOut}`
-    ];
+    work.push(`Answer:   ${cleanOut}`);
 
     return { answers: [{ v: 'Answer', val: cleanOut }], work };
   }
