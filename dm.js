@@ -788,7 +788,7 @@
     return { answers: [{ v: 'simplified', val: out }], work: ['Expression:', `  ${expr}`, '', 'Distribute and combine like terms:', `  ${out}`, '', `Answer:   ${out}`] };
   }
 
-   function nFactor(text) {
+  function nFactor(text) {
     const nd = window.nerdamer;
     let expr = '';
     
@@ -803,8 +803,8 @@
     if (!expr) return null;
     if (expr.includes('=')) expr = expr.split('=')[0].trim();
 
-    // Clean the input for Nerdamer
-    const compact = expr.replace(/\s/g, '').replace(/\^2/g, '^2'); // keep ^2 for regex
+    // Normalize ALL ^(...) to just ^... AND catch x²
+    const compact = expr.replace(/\s/g, '').replace(/\^\((.*?)\)/g, '^$1').replace(/x²/g, 'x^2');
     
     let a = 0, b = 0, c = 0;
     
@@ -813,7 +813,7 @@
     if (am) a = am[1] === '' || am[1] === '+' ? 1 : am[1] === '-' ? -1 : parseFloat(am[1]);
     
     // Only match the middle x (not x^2)
-    const bm = compact.match(/([+-]?\d*)x(?!\^)/i);
+    const bm = compact.match(/([+-]?\d*)x(?!\^2)/i);
     if (bm) b = bm[1] === '' || bm[1] === '+' ? 1 : bm[1] === '-' ? -1 : parseFloat(bm[1]);
     
     // Match the constant term at the end
@@ -828,14 +828,9 @@
 
     const a2 = a / gcf, b2 = b / gcf, c2 = c / gcf;
     
-    // Get final factored string from Nerdamer for the answer block
-    let factoredStr = '';
-    try { factoredStr = nd(`factor(${expr})`).toString(); } catch(e) {}
-    const cleanOut = factoredStr.replace(/\*/g, '').replace(/-/g, ' − ').replace(/\+/g, ' + ').replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
+    const work = ['Expression:', `  ${compact.replace(/\^2/g, '²').replace(/-/g, ' − ').replace(/\+/g, ' + ')}`, ''];
+    let finalAns = '';
 
-    const work = ['Expression:', `  ${expr.replace(/-/g, ' − ').replace(/\+/g, ' + ')}`, ''];
-
-    // Step 1: GCF
     if (gcf > 1) {
       let innerStr = '';
       if (a2 !== 0) innerStr += `${a2 === 1 ? '' : a2 === -1 ? '-' : a2}x² `;
@@ -849,7 +844,6 @@
       work.push('');
     }
 
-    // Step 2: Find magic numbers
     if (a2 === 1) {
       work.push(`Find two numbers that multiply to ${c2} and add to ${b2}:`);
       let m = 0, n = 0;
@@ -861,11 +855,16 @@
         work.push(`  ${m} and ${n}`);
         work.push('');
         
-        let f1 = m === 1 ? '(x + 1)' : m === -1 ? '(x − 1)' : `(x ${m > 0 ? '+ ' + m : '− ' + (-m)})`;
-        let f2 = n === 1 ? '(x + 1)' : n === -1 ? '(x − 1)' : `(x ${n > 0 ? '+ ' + n : '− ' + (-n)})`;
+        // Manually build the string so Nerdamer doesn't mess up the order
+        let f1 = m > 0 ? `(x + ${m})` : `(x − ${-m})`;
+        let f2 = n > 0 ? `(x + ${n})` : `(x − ${-n})`;
+        if (m === 1) f1 = '(x + 1)'; if (m === -1) f1 = '(x − 1)';
+        if (n === 1) f2 = '(x + 1)'; if (n === -1) f2 = '(x − 1)';
+        
+        finalAns = `${gcf > 1 ? gcf : ''}${f1}${f2}`;
 
         work.push(`Factor:`);
-        work.push(`  ${gcf > 1 ? gcf : ''}${f1}${f2}`);
+        work.push(`  ${finalAns}`);
         work.push('');
       }
     } else if (Math.abs(a2) > 1) {
@@ -890,19 +889,29 @@
         work.push(`Split the middle term:`);
         work.push(`  ${gcf > 1 ? gcf : ''}(${start}${mid.trim().replace(/^\+\s/, '')} ${end})`);
         work.push('');
+
+        // Let Nerdamer handle A>1 grouping
+        let factoredStr = '';
+        try { factoredStr = nd(`factor(${expr})`).toString(); } catch(e) {}
+        finalAns = factoredStr.replace(/\*/g, '').replace(/-/g, ' − ').replace(/\+/g, ' + ').replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
         
         work.push(`Factor by grouping:`);
-        // Just use the nerdamer cleanOut for grouping to avoid messy parsing
-        work.push(`  ${cleanOut}`);
+        work.push(`  ${finalAns}`);
         work.push('');
       }
     }
 
-    work.push(`Answer:   ${cleanOut}`);
+    if (!finalAns) {
+      let factoredStr = '';
+      try { factoredStr = nd(`factor(${expr})`).toString(); } catch(e) {}
+      finalAns = factoredStr.replace(/\*/g, '').replace(/-/g, ' − ').replace(/\+/g, ' + ').replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
+    }
 
-    return { answers: [{ v: 'Answer', val: cleanOut }], work };
+    work.push(`Answer:   ${finalAns}`);
+
+    return { answers: [{ v: 'Answer', val: finalAns }], work };
   }
-
+  
   function manualDistance(text) {
     const pts = text.match(/\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/g);
     if (!pts || pts.length < 2) return null;
