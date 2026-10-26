@@ -953,17 +953,6 @@
 
     return { answers: [{ v: 'Answer', val: finalAns }], work };
   }
-
-    if (!finalAns) {
-      let factoredStr = '';
-      try { factoredStr = nd(`factor(${expr})`).toString(); } catch(e) {}
-      finalAns = factoredStr.replace(/\*/g, '').replace(/-/g, ' − ').replace(/\+/g, ' + ').replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
-    }
-
-    work.push(`Answer:   ${finalAns}`);
-
-    return { answers: [{ v: 'Answer', val: finalAns }], work };
-  }
   
   function manualDistance(text) {
     const pts = text.match(/\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/g);
