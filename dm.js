@@ -797,9 +797,14 @@
     // Find the expression from the text
     const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     for (const l of lines) {
-      if (/[0-9]/.test(l) && /[a-z]/i.test(l) && !/factor|solve|question|answer|score|penalty|complete|assignment|section|chapter|level|out of/i.test(l)) {
+      // FIX: Must contain a letter, a number, AND a math operator (+, -, ^, ²)
+      if (/[a-z]/i.test(l) && /[0-9]/.test(l) && /[+\-²^]/.test(l)) {
+         // FIX: Skip sidebar/admin text like due dates, assignments, etc.
+         if (/due|date|time|score|penalty|complete|assignment|section|chapter|level|out of|question|answer|submit|back|log out/i.test(l)) continue;
+         
          // Skip screen-reader text like "4, x, plus, 4"
          if (/, (plus|minus|equals|negative|x|y|z|a|b|c|w|is|the|of|over|times|divided)\b/i.test(l) && (l.match(/,/g) || []).length >= 2) continue;
+         
          let cleaned = cleanLine(l).replace(/^.*?:\s*/, '').trim();
          if (cleaned.length > 2 && cleaned.length < 50) { expr = cleaned; break; }
       }
@@ -937,6 +942,17 @@
         work.push('');
       }
     }
+
+    if (!finalAns) {
+      let factoredStr = '';
+      try { factoredStr = nd(`factor(${expr})`).toString(); } catch(e) {}
+      finalAns = factoredStr.replace(/\*/g, '').replace(/-/g, ' − ').replace(/\+/g, ' + ').replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
+    }
+
+    work.push(`Answer:   ${finalAns}`);
+
+    return { answers: [{ v: 'Answer', val: finalAns }], work };
+  }
 
     if (!finalAns) {
       let factoredStr = '';
