@@ -797,12 +797,10 @@
     // Find the expression from the text
     const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     for (const l of lines) {
-      // FIX: Must contain a letter, a number, AND a math operator (+, -, ^, ²)
-      if (/[a-z]/i.test(l) && /[0-9]/.test(l) && /[+\-²^]/.test(l)) {
-         // FIX: Skip sidebar/admin text like due dates, assignments, etc.
+      if (/[a-z]/i.test(l) && /[0-9]/.test(l)) {
+         // Skip sidebar/admin text like due dates
          if (/due|date|time|score|penalty|complete|assignment|section|chapter|level|out of|question|answer|submit|back|log out/i.test(l)) continue;
-         
-         // Skip screen-reader text like "4, x, plus, 4"
+         // Skip screen-reader text
          if (/, (plus|minus|equals|negative|x|y|z|a|b|c|w|is|the|of|over|times|divided)\b/i.test(l) && (l.match(/,/g) || []).length >= 2) continue;
          
          let cleaned = cleanLine(l).replace(/^.*?:\s*/, '').trim();
@@ -812,144 +810,32 @@
     if (!expr) return null;
     if (expr.includes('=')) expr = expr.split('=')[0].trim();
 
-    // Normalize ALL ^(...) to just ^... AND catch x²
-    const compact = expr.replace(/\s/g, '').replace(/\^\((.*?)\)/g, '^$1').replace(/x²/g, 'x^2');
-    
-    let a = 0, b = 0, c = 0;
-    
-    // Parse A, B, C
-    const am = compact.match(/([+-]?\d*)x\^2/i);
-    if (am) a = am[1] === '' || am[1] === '+' ? 1 : am[1] === '-' ? -1 : parseFloat(am[1]);
-    
-    // Only match the middle x (not x^2)
-    const bm = compact.match(/([+-]?\d*)x(?!\^2)/i);
-    if (bm) b = bm[1] === '' || bm[1] === '+' ? 1 : bm[1] === '-' ? -1 : parseFloat(bm[1]);
-    
-    // Match the constant term at the end
-    const cm = compact.match(/([+-]?\d+)$/);
-    if (cm) c = parseFloat(cm[1]);
-
-    let gcf = 1;
-    if (a !== 0) {
-      const vals = [a, b, c].filter(v => v !== 0).map(v => Math.abs(v));
-      gcf = vals.reduce((acc, val) => gcd(acc, val), vals[0]);
-    } else if (b !== 0 || c !== 0) {
-      const vals = [b, c].filter(v => v !== 0).map(v => Math.abs(v));
-      gcf = vals.reduce((acc, val) => gcd(acc, val), vals[0]);
+    // Use Nerdamer to factor the expression completely
+    let factoredStr = '';
+    try { 
+      factoredStr = nd(`factor(${expr})`).toString(); 
+    } catch(e) { 
+      return null; 
     }
 
-    const a2 = a / gcf, b2 = b / gcf, c2 = c / gcf;
-    
-    const work = ['Expression:', `  ${compact.replace(/\^2/g, '²').replace(/-/g, ' − ').replace(/\+/g, ' + ')}`, ''];
-    let finalAns = '';
+    // Format the output nicely
+    let finalAns = factoredStr
+      .replace(/\*/g, '')
+      .replace(/-/g, ' − ')
+      .replace(/\+/g, ' + ')
+      .replace(/\s+/g, ' ')
+      .replace(/\(\s+/g, '(')
+      .replace(/\s+\)/g, ')');
 
-    if (gcf > 1) {
-      let innerStr = '';
-      if (a2 !== 0) innerStr += `${a2 === 1 ? '' : a2 === -1 ? '-' : a2}x² `;
-      if (b2 !== 0) innerStr += `${b2 > 0 ? '+ ' : '− '}${Math.abs(b2) === 1 ? '' : Math.abs(b2)}x `;
-      if (c2 !== 0) innerStr += `${c2 > 0 ? '+ ' : '− '}${Math.abs(c2)}`;
-      innerStr = innerStr.trim();
-      if (innerStr.startsWith('+ ')) innerStr = innerStr.slice(2);
-      
-      work.push(`Factor out GCF:`);
-      work.push(`  ${gcf}(${innerStr})`);
-      work.push('');
-    }
-
-    if (a2 === 0) {
-      // Linear case (no x² term)
-      if (gcf > 1) {
-        let innerStr = '';
-        if (b2 !== 0) innerStr += `${b2 === 1 ? '' : b2 === -1 ? '-' : b2}x`;
-        if (c2 !== 0) {
-          const sign = c2 > 0 ? ' + ' : ' − ';
-          innerStr += `${sign}${Math.abs(c2)}`;
-        }
-        innerStr = innerStr.trim();
-        if (innerStr.startsWith('+ ')) innerStr = innerStr.slice(2);
-        finalAns = `${gcf}(${innerStr})`;
-      } else {
-        finalAns = compact.replace(/\^2/g, '²').replace(/-/g, ' − ').replace(/\+/g, ' + ');
-      }
-    } else {
-      // Quadratic case
-      let m = 0, n = 0;
-      let ac = a2 * c2;
-      work.push(`Find two numbers that multiply to ${a2 === 1 ? c2 : `${a2} * ${c2} = ${ac}`} and add to ${b2}:`);
-      for (let i = -200; i <= 200; i++) {
-        if (i === 0) continue;
-        if (ac % i === 0 && i + (ac / i) === b2) { m = i; n = ac / i; break; }
-      }
-      
-      if (m !== 0) {
-        work.push(`  ${m} and ${n}`);
-        work.push('');
-
-        const fmtBin = (ca, cb) => {
-          let out = '';
-          if (ca !== 0) out += (ca === 1 ? '' : ca === -1 ? '−' : ca) + 'x';
-          if (cb !== 0) {
-            if (out) out += cb > 0 ? ' + ' + cb : ' − ' + Math.abs(cb);
-            else out += cb > 0 ? cb : '−' + Math.abs(cb);
-          }
-          return out || '0';
-        };
-
-        let split = `${a2 === 1 ? '' : a2 === -1 ? '−' : a2}x²`;
-        split += ` ${m > 0 ? '+' : '−'} ${Math.abs(m) === 1 ? '' : Math.abs(m)}x`;
-        split += ` ${n > 0 ? '+' : '−'} ${Math.abs(n) === 1 ? '' : Math.abs(n)}x`;
-        split += ` ${c2 > 0 ? '+' : '−'} ${Math.abs(c2)}`;
-
-        work.push(`Split the middle term:`);
-        work.push(`  ${gcf > 1 ? gcf + '(' : ''}${split}${gcf > 1 ? ')' : ''}`);
-        work.push('');
-
-        const g1 = gcd(a2, m);
-        const g2_raw = gcd(n, c2);
-        
-        let bin1_a = a2 / g1, bin1_b = m / g1;
-        let bin2_a = n / g2_raw, bin2_b = c2 / g2_raw;
-        
-        let g2 = g2_raw;
-        // Ensure the binomials match exactly (flip signs if needed)
-        if (bin1_a === -bin2_a && bin1_b === -bin2_b) {
-          g2 = -g2;
-          bin2_a = -bin2_a;
-          bin2_b = -bin2_b;
-        }
-        
-        const out1 = g1 === 1 ? 'x' : g1 === -1 ? '−x' : g1 + 'x';
-        const in1 = fmtBin(bin1_a, bin1_b);
-        const in2 = fmtBin(bin2_a, bin2_b);
-        
-        let grp = `${out1}(${in1}) ${g2 >= 0 ? '+' : '−'} ${Math.abs(g2) === 1 ? '' : Math.abs(g2)}(${in2})`;
-        if (Math.abs(g2) === 1) grp = `${out1}(${in1}) ${g2 > 0 ? '+' : '−'} (${in2})`;
-        
-        work.push(`Factor by grouping:`);
-        work.push(`  ${gcf > 1 ? gcf + '[' : ''}${grp}${gcf > 1 ? ']' : ''}`);
-        work.push('');
-
-        // Build the final factors
-        let f1 = bin1_a === 1 ? `(x ${bin1_b > 0 ? '+ ' + bin1_b : '− ' + (-bin1_b)})` : `(${bin1_a}x ${bin1_b > 0 ? '+ ' + bin1_b : '− ' + (-bin1_b)})`;
-        if (bin1_b === 1) f1 = bin1_a === 1 ? '(x + 1)' : `(${bin1_a}x + 1)`;
-        if (bin1_b === -1) f1 = bin1_a === 1 ? '(x − 1)' : `(${bin1_a}x − 1)`;
-        
-        const f2_bin = fmtBin(g1, g2);
-        finalAns = `${gcf > 1 ? gcf : ''}${f1}(${f2_bin})`;
-
-        work.push(`Factor:`);
-        work.push(`  ${finalAns}`);
-        work.push('');
-      }
-    }
-
-    if (!finalAns) {
-      let factoredStr = '';
-      try { factoredStr = nd(`factor(${expr})`).toString(); } catch(e) {}
-      finalAns = factoredStr.replace(/\*/g, '').replace(/-/g, ' − ').replace(/\+/g, ' + ').replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
-    }
-
-    work.push(`Answer:   ${finalAns}`);
+    const work = [
+      'Expression:', 
+      `  ${expr.replace(/-/g, ' − ').replace(/\+/g, ' + ')}`, 
+      '',
+      `Factor completely:`,
+      `  ${finalAns}`,
+      '',
+      `Answer:   ${finalAns}`
+    ];
 
     return { answers: [{ v: 'Answer', val: finalAns }], work };
   }
